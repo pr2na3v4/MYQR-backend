@@ -178,12 +178,18 @@ class PosterDesigner:
         c.save()
 
 def generate_qr_pdf(shop_name, upi_id, tagline, primary_color, text_color, logo_path=None):
+    """
+    Generates the poster and returns the path to the TEMPORARY file.
+    The cleanup is now handled by the FastAPI background task in main.py.
+    """
     designer = PosterDesigner()
     try:
+        # Generate the poster inside the designer's temp directory
         path = designer.generate_poster(shop_name, upi_id, tagline, primary_color, text_color, logo_path)
-        final_path = os.path.join(os.getcwd(), os.path.basename(path))
-        shutil.copy(path, final_path)
-        return final_path
-    finally:
-        # Note: In a real app, you'd handle directory cleanup carefully
-        pass
+        
+        # We NO LONGER copy the file to os.getcwd().
+        # We return the path to the file inside the temp folder.
+        return path 
+    except Exception as e:
+        logger.error(f"Error in generate_qr_pdf: {e}")
+        raise

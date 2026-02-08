@@ -100,12 +100,21 @@ async def save_temp_logo(logo: UploadFile) -> Optional[str]:
 
 async def cleanup_task(pdf_path: str, logo_path: Optional[str], designer_temp: str):
     """Clean up files after a delay to ensure the download completes"""
-    await asyncio.sleep(20) 
+    await asyncio.sleep(20) # Give the user 20 seconds to finish the download
     try:
-        if pdf_path and os.path.exists(pdf_path): os.remove(pdf_path)
-        if logo_path and os.path.exists(logo_path): os.remove(logo_path)
-        if os.path.exists(designer_temp): shutil.rmtree(designer_temp, ignore_errors=True)
-        logger.info("Session cleanup complete.")
+        # 1. Remove the PDF file
+        if pdf_path and os.path.exists(pdf_path): 
+            os.remove(pdf_path)
+            
+        # 2. Remove the uploaded logo
+        if logo_path and os.path.exists(logo_path): 
+            os.remove(logo_path)
+            
+        # 3. CRITICAL: Remove the temporary folder where the QR pieces were stored
+        if designer_temp and os.path.exists(designer_temp):
+            shutil.rmtree(designer_temp, ignore_errors=True)
+            
+        logger.info(f"Disk Space Saved: Temporary session files cleared.")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
@@ -175,4 +184,7 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Render provides a 'PORT' environment variable. If it doesn't exist, we default to 8000.
+    port = int(os.environ.get("PORT", 8000))
+    # We use 0.0.0.0 so it's accessible externally on Render
+    uvicorn.run(app, host="0.0.0.0", port=port)
