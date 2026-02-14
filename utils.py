@@ -35,7 +35,7 @@ class QRDesigner:
             styled_qr = Image.new("RGBA", (canvas_size, canvas_size), (255, 255, 255, 0))
             draw = ImageDraw.Draw(styled_qr)
             
-            # Module size is the scale of individual dots
+            # Dot styling logic
             for y in range(0, height, 20):
                 for x in range(0, width, 20):
                     if raw_img.getpixel((x + 10, y + 10)) < 128:
@@ -88,26 +88,29 @@ class PosterDesigner:
 
     def generate_poster(self, shop_name: str, upi_id: str, tagline: str,
                         primary_color: str, text_color: str,
+                        instagram: str = "", website: str = "", # New Logic Added here
                         logo_path: str = None) -> str:
         try:
             upi_link = f"upi://pay?pa={upi_id}&pn={shop_name.replace(' ', '%20')}"
             qr_img_path = self.qr_designer.create_styled_qr(upi_link, primary_color, logo_path)
             pdf_path = os.path.join(self.temp_dir, f"poster_{uuid.uuid4().hex}.pdf")
-            self._create_pdf(pdf_path, shop_name, upi_id, tagline, primary_color, text_color, qr_img_path)
+            
+            # Pass new fields to internal PDF creator
+            self._create_pdf(pdf_path, shop_name, upi_id, tagline, primary_color, text_color, qr_img_path, instagram, website)
             return pdf_path
         except Exception as e:
             logger.error(f"Poster Generation Error: {e}")
             raise
 
-    def _create_pdf(self, pdf_path, shop_name, upi_id, tagline, primary_color, text_color, qr_img_path):
+    def _create_pdf(self, pdf_path, shop_name, upi_id, tagline, primary_color, text_color, qr_img_path, instagram, website):
         c = canvas.Canvas(pdf_path, pagesize=A4)
         width, height = A4
 
-        # 1. Background (Overall Page)
+        # 1. Background
         c.setFillColor(HexColor("#F8F9FA"))
         c.rect(0, 0, width, height, fill=1, stroke=0)
 
-        # 2. Top Header (Brand Color) - Slightly smaller to allow centering
+        # 2. Top Header
         header_height = 2.4 * inch
         c.setFillColor(HexColor(primary_color))
         c.rect(0, height - header_height, width, header_height, fill=1, stroke=0)
@@ -121,74 +124,81 @@ class PosterDesigner:
             c.setFont("Helvetica", 16)
             c.drawCentredString(width/2, height - 1.4*inch, tagline)
 
-        # 4. Centered QR Code Section
+        # 4. QR Code Card
         qr_display_size = 4.4 * inch
-        # Calculating center of page
         qr_x = (width - qr_display_size) / 2
-        qr_y = (height / 2) - (qr_display_size / 2) + 0.5*inch # Shifted slightly up for payment text
+        qr_y = (height / 2) - (qr_display_size / 2) + 0.5*inch 
 
-        # Soft Shadow for QR Card
+        # Shadow
         c.setFillColor(HexColor("#E0E0E0"))
         c.roundRect(qr_x + 3, qr_y - 3, qr_display_size, qr_display_size, 20, fill=1, stroke=0)
-        
-        # QR Image
         c.drawImage(qr_img_path, qr_x, qr_y, width=qr_display_size, height=qr_display_size)
 
-        # 5. Payment Details (Below QR)
+        # 5. Payment Details
         details_y = qr_y - 0.6 * inch
         c.setFillColor(HexColor(text_color))
         c.setFont("Helvetica-Bold", 20)
         c.drawCentredString(width/2, details_y, "SCAN TO PAY")
-        
         c.setFont("Helvetica", 12)
         c.setFillColor(HexColor("#444444"))
         c.drawCentredString(width/2, details_y - 0.3*inch, f"UPI ID: {upi_id}")
 
-        # 6. FOOTER SECTION (Clearly Visible)
-        footer_base_y = 1.2 * inch
-        
-        # Line Separator
-        c.setStrokeColor(HexColor("#D1D1D1"))
-        c.setLineWidth(1)
-        c.line(1.5*inch, footer_base_y + 0.8*inch, width - 1.5*inch, footer_base_y + 0.8*inch)
+        # 6. SMART SOCIAL SECTION (New Strategy Logic)
+        social_y = details_y - 0.9 * inch
+        if instagram or website:
+            c.setStrokeColor(HexColor("#EEEEEE"))
+            c.line(2*inch, social_y + 0.2*inch, width - 2*inch, social_y + 0.2*inch)
+            
+            c.setFont("Helvetica-Bold", 10)
+            c.setFillColor(HexColor(primary_color))
+            
+            if instagram:
+                # Mocking an Insta icon with text for simplicity
+                c.drawCentredString(width/2, social_y, f"  @{instagram.replace('@', '')}")
+                social_y -= 0.25 * inch
+            
+            if website:
+                c.setFont("Helvetica", 10)
+                c.setFillColor(HexColor("#666666"))
+                c.drawCentredString(width/2, social_y, f"🌐  {website.lower()}")
 
-        # "Accepted on all UPI Apps" Text
+        # 7. FOOTER SECTION
+        footer_base_y = 0.8 * inch
         c.setFillColor(HexColor("#666666"))
-        c.setFont("Helvetica-Bold", 11)
+        c.setFont("Helvetica-Bold", 10)
         c.drawCentredString(width/2, footer_base_y + 0.5*inch, "ACCEPTED ON ALL UPI APPS")
 
-        # Draw Professional-looking Icon Badges
+        # Badges
         badge_y = footer_base_y + 0.1 * inch
         center_x = width / 2
         
         def draw_badge(x, y, text, color):
-            # Badge Background
             c.setFillColor(HexColor(color))
-            c.roundRect(x - 40, y - 10, 80, 22, 5, fill=1, stroke=0)
-            # Badge Text
+            c.roundRect(x - 35, y - 10, 70, 20, 5, fill=1, stroke=0)
             c.setFillColor(HexColor("#FFFFFF"))
-            c.setFont("Helvetica-Bold", 9)
+            c.setFont("Helvetica-Bold", 8)
             c.drawCentredString(x, y - 3, text)
 
-        # Spacing badges horizontally
-        draw_badge(center_x - 100, badge_y, "GPay", "#4285F4")
+        draw_badge(center_x - 90, badge_y, "GPay", "#4285F4")
         draw_badge(center_x, badge_y, "PhonePe", "#5F259F")
-        draw_badge(center_x + 100, badge_y, "Paytm", "#00BAF2")
+        draw_badge(center_x + 90, badge_y, "Paytm", "#00BAF2")
 
         c.save()
 
-def generate_qr_pdf(shop_name, upi_id, tagline, primary_color, text_color, logo_path=None):
-    """
-    Generates the poster and returns the path to the TEMPORARY file.
-    The cleanup is now handled by the FastAPI background task in main.py.
-    """
+# Update the wrapper function to handle new args
+def generate_qr_pdf(shop_name, upi_id, tagline, primary_color, text_color, instagram="", website="", logo_path=None):
     designer = PosterDesigner()
     try:
-        # Generate the poster inside the designer's temp directory
-        path = designer.generate_poster(shop_name, upi_id, tagline, primary_color, text_color, logo_path)
-        
-        # We NO LONGER copy the file to os.getcwd().
-        # We return the path to the file inside the temp folder.
+        path = designer.generate_poster(
+            shop_name=shop_name, 
+            upi_id=upi_id, 
+            tagline=tagline, 
+            primary_color=primary_color, 
+            text_color=text_color, 
+            instagram=instagram, 
+            website=website, 
+            logo_path=logo_path
+        )
         return path 
     except Exception as e:
         logger.error(f"Error in generate_qr_pdf: {e}")
