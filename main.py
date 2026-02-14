@@ -1,33 +1,27 @@
-from fastapi import FastAPI, Form, File, UploadFile, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel, validator, Field
-from starlette.background import BackgroundTask
-from typing import Optional
-import razorpay
 import os
 import re
 import uuid
 import logging
-from pathlib import Path
 import shutil
 import time
 import asyncio
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, Form, File, UploadFile, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from pydantic import BaseModel, Field, field_validator
+from starlette.background import BackgroundTask
 
 # Import the refactored generator from your utils.py
 from utils import PosterDesigner
 
-# Configure logging
+# --- Configuration & Logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Razorpay Configuration ---
-RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "rzp_test_xxxx")
-RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "your_secret_key")
-client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-
-# --- Constants ---
 HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{3}){1,2}$")
 ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
 MAX_SHOP_NAME_LENGTH = 50
@@ -44,13 +38,15 @@ class QRRequest(BaseModel):
     primary_color: str = Field(default="#646cff")
     text_color: str = Field(default="#000000")
     
-    @validator("primary_color", "text_color")
+    @field_validator("primary_color", "text_color")
+    @classmethod
     def validate_hex_color(cls, v):
         if not HEX_COLOR_PATTERN.match(v):
             raise ValueError("Invalid hex color format")
         return v.lower()
     
-    @validator("upi_id")
+    @field_validator("upi_id")
+    @classmethod
     def validate_upi_id(cls, v):
         if "@" not in v:
             raise ValueError("Invalid UPI ID: Must contain '@'")
@@ -62,7 +58,7 @@ class AppState:
         self.generation_count = 0
 
 app_state = AppState()
-app = FastAPI(title="QR Generator API")
+app = FastAPI(title="QR Generator API - Refactored")
 
 # Rate Limiter
 class SimpleRateLimiter:
@@ -106,13 +102,14 @@ async def save_temp_logo(logo: UploadFile) -> Optional[str]:
     return str(file_path)
 
 async def cleanup_task(pdf_path: str, logo_path: Optional[str], designer_temp: str):
+    """Background task to remove files after serving the response."""
     await asyncio.sleep(20)
     try:
         if pdf_path and os.path.exists(pdf_path): os.remove(pdf_path)
         if logo_path and os.path.exists(logo_path): os.remove(logo_path)
         if designer_temp and os.path.exists(designer_temp):
             shutil.rmtree(designer_temp, ignore_errors=True)
-        logger.info(f"Temporary session files cleared.")
+        logger.info("Temporary session files cleared.")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
@@ -123,8 +120,8 @@ async def generate_pdf_endpoint(
     request: Request,
     shop_name: str = Form(...),
     upi_id: str = Form(...),
-    instagram: Optional[str] = Form(None), # Updated logic
-    website_url: Optional[str] = Form(None), # Updated logic
+    instagram: Optional[str] = Form(None),
+    website_url: Optional[str] = Form(None),
     tagline: Optional[str] = Form(None),
     primary_color: str = Form("#646cff"),
     text_color: str = Form("#000000"),
@@ -138,6 +135,7 @@ async def generate_pdf_endpoint(
     logo_path = None
     
     try:
+        # Pydantic validation
         req_data = QRRequest(
             shop_name=shop_name, 
             upi_id=upi_id, 
@@ -155,8 +153,8 @@ async def generate_pdf_endpoint(
             shop_name=req_data.shop_name,
             upi_id=req_data.upi_id,
             tagline=req_data.tagline or "",
-            instagram=req_data.instagram or "", # Passed to utils
-            website=req_data.website_url or "",   # Passed to utils
+            instagram=req_data.instagram or "",
+            website=req_data.website_url or "",
             primary_color=req_data.primary_color,
             text_color=req_data.text_color,
             logo_path=logo_path
@@ -176,34 +174,10 @@ async def generate_pdf_endpoint(
 
     except Exception as e:
         logger.error(f"PDF generation failed: {e}")
-        if logo_path and os.path.exists(logo_path): os.remove(logo_path)
+        # Immediate cleanup of logo on error
+        if logo_path and os.path.exists(logo_path): 
+            os.remove(logo_path)
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/create-payment")
-async def create_payment():
-    try:
-        data = {
-            "amount": 9900, 
-            "currency": "INR",
-            "receipt": f"receipt_{uuid.uuid4().hex[:10]}",
-            "payment_capture": 1 
-        }
-        order = client.order.create(data=data)
-        return order
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
-
-@app.post("/verify-payment")
-async def verify_payment(payload: dict):
-    try:
-        client.utility.verify_payment_signature({
-            'razorpay_order_id': payload.get('order_id'),
-            'razorpay_payment_id': payload.get('payment_id'),
-            'razorpay_signature': payload.get('signature')
-        })
-        return {"status": "success", "message": "Payment Verified"}
-    except Exception:
-        return JSONResponse(status_code=400, content={"status": "failure", "message": "Invalid Signature"})
 
 @app.get("/health")
 async def health():
