@@ -120,7 +120,7 @@ app.add_middleware(GZipMiddleware)
 # ---------------------------------------------------------------------------
 
 @app.post(
-    "/v2/generate-assets",
+    "/generate-pdf",
     summary="Generate QR code + PDF poster",
     response_description="A4 PDF poster as a downloadable file",
 )
